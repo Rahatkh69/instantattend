@@ -1,25 +1,336 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>smart webcam</title>
-  <link rel="stylesheet" href="style.css">
+    <title>Document</title>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js" type="text/javascript"></script>
+    <link rel="stylesheet" href="sty.css">
+    <style>
+      body {
+    font-family: helvetica, arial, sans-serif;
+    margin: 2em;
+}
+
+h1 {
+  font-style: italic;
+  color: #FF6F00;
+}
+
+
+video {
+  clear: both;
+  display: block;
+  margin: 10px;
+  background: #000000;
+  width: 640px;
+  height: 480px;
+}
+
+button {
+  padding: 10px;
+  float: left;
+  margin: 5px 3px 5px 10px;
+}
+
+ol {
+  clear: both;
+  margin-top: 90px;
+}
+
+.removed {
+  display: none;
+}
+
+#status {
+  font-size:150%;
+}
+    </style>
 </head>
 <body>
-  <h1>Multiple object detection using pre trained model in TensorFlow.js</h1>
-  <section id="demos" class="invisible">
-
-    <p>Hold some objects up close to your webcam to get a real-time classification! When ready click "enable webcam" below and accept access to the webcam when the browser asks (check the top left of your window)</p>
+    <h1>attend soft serves a system that can be useful for attendence system in any organization</h1>
     
-    <div id="liveView" class="camView">
-      <button id="webcamButton">Enable Webcam</button>
-      <video id="webcam" autoplay muted width="640" height="480"></video>
-    </div>
-  </section>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js" type="text/javascript"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-  <script src="script.js" defer></script>
+    <p id="status">not ready for use</p>
+    
+    <video id="webcam" autoplay></video>
+    
+    <button id="enableCam">Enable Webcam</button>
+    <button class="dataCollector" data-num="0" data-name="mashrafi">mashrafi</button>
+    <button class="dataCollector" data-num="1" data-name="siam">siam</button>
+    <button class="dataCollector" data-num="2" data-name="abbu">abbu</button>
+    <button class="dataCollector" data-num="3" data-name="ammu">ammu</button>
+
+    <button id="train">Train</button>
+    <button id="predict">predict</button>
+    <button id="reset">Reset</button>
+    <button id="save">save</button>
+    <script src="a.js"></script>
+    <script>
+      const statusA = document.getElementById(`status`);
+const webcam = document.getElementById(`webcam`);
+const enableCamBtn = document.getElementById(`enableCam`);
+const resetBtn = document.getElementById(`reset`);
+const trainBtn = document.getElementById(`train`);
+const predictBtn = document.getElementById(`predict`);
+const saveBtn = document.getElementById(`save`);
+const MOBILE_NET_INPUT_HEIGHT = 224;
+const MOBILE_NET_INPUT_WIDTH = 224;
+const stopGatheringData = -1;
+const humanNames = [];
+
+enableCamBtn.addEventListener(`click`, enableCamFn);
+saveBtn.addEventListener(`click`, saveModel);
+resetBtn.addEventListener(`click`, resetFn);
+trainBtn.addEventListener(`click`, train);
+predictBtn.addEventListener(`click`, predictFn);
+
+let dataCollectorButtons = document.querySelectorAll(`button.dataCollector`);
+
+for(let i=0;i<dataCollectorButtons.length;i++){
+    dataCollectorButtons[i].addEventListener(`mousedown`,gatherDataForName)
+    dataCollectorButtons[i].addEventListener(`mouseup`,gatherDataForName)
+    dataCollectorButtons[i].addEventListener(`touchend`,gatherDataForName)
+
+    humanNames.push(dataCollectorButtons[i].getAttribute('data-name'))
+}
+
+let mobilenet = undefined;
+let isVideoPlaying = false;
+let trainingDataInputs = [];
+let trainingDataOutputs = [];
+let examplesCount = [];
+let gatherDataState = stopGatheringData;
+let predict = false;
+
+
+
+async function loadMobileNet() {
+  const URL =
+    "https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v3_small_100_224/feature_vector/5/default/1";
+
+  mobilenet = await tf.loadGraphModel(URL, { fromTFHub: true });
+
+  statusA.innerText = `ready for use`;
+}
+
+loadMobileNet()
+
+let model = tf.sequential();
+
+model.add(
+  tf.layers.dense({ inputShape: [1024], units: 128, activation: "relu" })
+);
+model.add(tf.layers.dense({ units: humanNames.length, activation: "softmax" }));
+
+model.compile({
+  optimizer: "adam",
+  loss:
+    humanNames.length === 2 ? "binaryCrossentropy" : "categoricalCrossentropy",
+  metrics: ["accuracy"],
+});
+
+
+
+function hasGetUserMedia() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+
+
+function enableCamFn() {
+  if (hasGetUserMedia()) {
+    const constraints = {
+      video: true,
+      height: 640,
+      width: 480,
+      facingMode: `environment`,
+    };
+
+    navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+      webcam.srcObject = stream;
+      webcam.addEventListener(`loadeddata`, () => {
+        isVideoPlaying = true;
+        enableCamBtn.classList.add("removed");
+      });
+    });
+  } else {
+    console.warn(`your device do not support access to the media devices`);
+  }
+}
+
+
+function gatherDataForName(){
+    let namesNumber = parseInt(this.getAttribute('data-num'))
+
+    gatherDataState = (gatherDataState === stopGatheringData)?namesNumber:stopGatheringData
+    dataGatherLoop()
+}
+
+function calculateFeaturesOnCurrentFrame() {
+    return tf.tidy(function() {
+      let videoFrameAsTensor = tf.browser.fromPixels(webcam);
+      let resizedTensorFrame = tf.image.resizeBilinear(
+          videoFrameAsTensor, 
+          [MOBILE_NET_INPUT_HEIGHT, MOBILE_NET_INPUT_WIDTH],
+          true
+      );    
+  
+      let normalizedTensorFrame = resizedTensorFrame.div(255);
+  
+      return mobilenet.predict(normalizedTensorFrame.expandDims()).squeeze();
+    });  
+} 
+
+function dataGatherLoop(){
+  if(isVideoPlaying && gatherDataState !== stopGatheringData){
+    let imageFeatures = calculateFeaturesOnCurrentFrame()
+
+    trainingDataInputs.push(imageFeatures)
+    trainingDataOutputs.push(gatherDataState)
+
+    if(examplesCount[gatherDataState] === undefined){
+      examplesCount[gatherDataState] = 0
+    }else{
+      examplesCount[gatherDataState]++
+    }
+    statusA.innerText = ``
+    for(let i=0;i<humanNames.length;i++){
+      statusA.innerHTML += `${humanNames[i]} data-count: ${examplesCount[i]}  `
+    }
+    
+    window.requestAnimationFrame(dataGatherLoop)
+  }
+}
+
+let outputsAsTensor
+let oneOutputs 
+let inputsAsTensor 
+function train() {
+  predict = false;
+  tf.util.shuffleCombo(trainingDataInputs, trainingDataOutputs);
+
+  outputsAsTensor = tf.tensor1d(trainingDataOutputs, 'int32');
+  oneOutputs = tf.oneHot(outputsAsTensor, humanNames.length);
+  inputsAsTensor = tf.stack(trainingDataInputs);
+
+  statusA.innerText = `trained`
+}
+
+async function predictFn(){
+  let results = await model.fit(inputsAsTensor, oneOutputs, {
+    shuffle: true,
+    batchSize: 5,
+    epochs: 10,
+  });  
+  
+  outputsAsTensor.dispose();
+  oneOutputs.dispose();
+  inputsAsTensor.dispose();
+  
+  predict = true;
+  predictLoop();
+}
+
+function predictLoop() {
+  if (predict) {
+    tf.tidy(function() {
+      let imageFeatures = calculateFeaturesOnCurrentFrame();
+      let prediction = model.predict(imageFeatures.expandDims()).squeeze();
+      let highestIndex = prediction.argMax().arraySync();
+      let predictionArray = prediction.arraySync();
+      statusA.innerText = `Prediction: ${humanNames[highestIndex]} with ${Math.floor(predictionArray[highestIndex] * 100)}% confidence`;
+    });  
+
+    window.requestAnimationFrame(predictLoop);
+  }  
+}  
+
+function resetFn() {
+  if(localStorage.getItem('trainingData')){
+    localStorage.removeItem('trainingData')
+  }
+  predict = false;  
+  examplesCount.splice(0);
+  for (let i = 0; i < trainingDataInputs.length; i++) {
+    trainingDataInputs[i].dispose();  
+  }
+  trainingDataInputs.splice(0);
+  trainingDataOutputs.splice(0);
+  statusA.innerText = 'No data collected';
+  
+}
+
+
+
+
+
+// Function to save training data to local storage
+function saveModel() {
+  const trainingDataSave = {
+    inputs: trainingDataInputs.map((tensor, index) => {
+      if (!tensor) {
+        console.error(`Null or undefined tensor found at index ${index}`);
+        return null;
+      }
+      return tensor.arraySync();
+    }),
+    outputs: trainingDataOutputs,
+    examplesCount: examplesCount
+  };
+
+  // Convert the JSON object to a string
+  const trainingDataSaveString = JSON.stringify(trainingDataSave);
+
+  // Save to local storage
+  localStorage.setItem('trainingData', trainingDataSaveString);
+
+  // Display a success message
+  statusA.innerText = 'Training data saved to local storage.';
+}
+
+
+
+
+
+
+function loadTrainingDataFromLocal() {
+  const trainingDataSaveString = localStorage.getItem('trainingData');
+
+  setTimeout(() => {
+	if (trainingDataSaveString) {
+	    const trainingDataSave = JSON.parse(trainingDataSaveString);
+	
+	    // Clear existing training data
+	    trainingDataInputs.forEach(tensor => tensor.dispose());
+	    trainingDataInputs = [];
+	    trainingDataOutputs = [];
+	    examplesCount = [];
+	    
+	    // Convert loaded data back to tensors
+	    trainingDataSave.inputs.forEach(inputData => {
+	      trainingDataInputs.push(tf.tensor(inputData));
+	    });
+	    trainingDataOutputs = trainingDataSave.outputs;
+	    examplesCount = trainingDataSave.examplesCount;
+	    predict = true;
+	    
+	    // Display a success message
+	    statusA.innerText = 'Training data loaded from local storage.';
+	    
+	    enableCamFn()
+      train()
+	    predictFn()
+	  } else {
+	    statusA.innerText = 'No training data found in local storage.';
+	  }
+}, 10000);
+}
+
+
+window.addEventListener(`load`,loadTrainingDataFromLocal)
+
+
+    </script>
 </body>
 </html>
