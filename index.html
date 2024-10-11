@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download ZIP</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+    }
+    .container {
+      text-align: center;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #218838;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Download ZIP File</h1>
+    <button onclick="downloadZip()">Download ZIP</button>
+  </div>
+
+  <script>
+    function downloadZip() {
+      const link = document.createElement('a');
+      link.href = './!§3AhmedFruit §8[§f16x§8].zip'; // Provide the correct path to your file
+      link.download = '!§3AhmedFruit §8[§f16x§8].zip';
+      link.click();
+    }
+  </script>
+</body>
+</html>
